@@ -29,7 +29,9 @@ function setAudioSession(soundOn) {
 
 const W = 9, H = 13, S = 30, G = 8, P = S + G, WALLS = 10;
 const COLORS = ['#ff6b6b', '#5ca8ff'], NAMES = ['赤', '青'];
-const wallSet = () => new Set();
+// 壁は左上の角のマス (c,r) で表し、c + r * W の位置に 1 を立てる（探索で速く引けるように配列にする）
+const wallSet = () => new Uint8Array(W * H);
+const has = (a, c, r) => c >= 0 && r >= 0 && c < W && r < H && a[c + r * W] === 1;
 let pawns, walls, left, turn, winner, mode, preview, timer;
 let cpus = 0;   // CPU の数。1 なら青が CPU、2 なら両方
 
@@ -45,9 +47,9 @@ function reset() {
 function blocked(w, c, r, dc, dr) {
   const nc = c + dc, nr = r + dr;
   if (nc < 0 || nc >= W || nr < 0 || nr >= H) return true;
-  if (dc) { const x = Math.min(c, nc); return w.v.has(x + ',' + r) || w.v.has(x + ',' + (r - 1)); }
+  if (dc) { const x = Math.min(c, nc); return has(w.v, x, r) || has(w.v, x, r - 1); }
   const y = Math.min(r, nr);
-  return w.h.has(c + ',' + y) || w.h.has((c - 1) + ',' + y);
+  return has(w.h, c, y) || has(w.h, c - 1, y);
 }
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
@@ -58,71 +60,151 @@ function moves(i) {
 }
 
 // 相手のコマは無視して、一番上の段までの最短の歩数（着けなければ Infinity）
+const seen = new Uint32Array(W * H), queue = new Int16Array(W * H), parent = new Int16Array(W * H);
+let stamp = 0, goal = -1;   // 最後に着いたゴールのマス。parent をたどると道になる
 function dist(w, p) {
-  const seen = new Set([p.c + ',' + p.r]);
-  let q = [[p.c, p.r]];
-  for (let d = 0; q.length; d++) {
-    const nq = [];
-    for (const [c, r] of q) {
-      if (r === 0) return d;
+  stamp++;
+  let head = 0, tail = 0;
+  queue[tail++] = p.c + p.r * W; seen[p.c + p.r * W] = stamp; parent[p.c + p.r * W] = -1;
+  for (let d = 0; head < tail; d++) {
+    const end = tail;
+    for (; head < end; head++) {
+      const k = queue[head], c = k % W, r = (k - c) / W;
+      if (r === 0) { goal = k; return d; }
       for (const [a, b] of DIRS) {
-        const k = (c + a) + ',' + (r + b);
-        if (!seen.has(k) && !blocked(w, c, r, a, b)) { seen.add(k); nq.push([c + a, r + b]); }
+        const n = k + a + b * W;
+        if (seen[n] !== stamp && !blocked(w, c, r, a, b)) { seen[n] = stamp; parent[n] = k; queue[tail++] = n; }
       }
     }
-    q = nq;
   }
   return Infinity;
 }
 
-function canWall(o, c, r) {
-  if (c < 0 || c > W - 2 || r < 0 || r > H - 2 || left[turn] <= 0) return false;
+// 十字・重なりにならないか（道がふさがるかは見ない）
+function wallShapeOk(o, c, r) {
+  if (c < 0 || c > W - 2 || r < 0 || r > H - 2) return false;
   const a = walls[o], b = walls[o === 'h' ? 'v' : 'h'];
-  if (b.has(c + ',' + r)) return false;                                       // 十字
-  if (o === 'h' ? (a.has((c - 1) + ',' + r) || a.has((c + 1) + ',' + r) || a.has(c + ',' + r))
-                : (a.has(c + ',' + (r - 1)) || a.has(c + ',' + (r + 1)) || a.has(c + ',' + r))) return false; // 重なり
-  a.add(c + ',' + r);
+  if (has(b, c, r)) return false;
+  return o === 'h' ? !(has(a, c - 1, r) || has(a, c + 1, r) || has(a, c, r))
+                   : !(has(a, c, r - 1) || has(a, c, r + 1) || has(a, c, r));
+}
+function canWall(o, c, r) {
+  if (left[turn] <= 0 || !wallShapeOk(o, c, r)) return false;
+  walls[o][c + r * W] = 1;
   const ok = pawns.every((p) => dist(walls, p) < Infinity);
-  a.delete(c + ',' + r);
+  walls[o][c + r * W] = 0;
   return ok;
 }
 
 const isCpu = (i) => cpus === 2 || (cpus === 1 && i === 1);
 function next() {
   draw();
-  if (winner < 0 && isCpu(turn)) timer = setTimeout(cpu, 500);
+  if (winner < 0 && isCpu(turn)) timer = setTimeout(cpu, 300);
 }
 function end() { turn = 1 - turn; preview = null; next(); }
 function moveTo(c, r) {
   pawns[turn] = { c, r };
   if (r === 0) { winner = turn; preview = null; draw(); } else end();
 }
-function placeWall(o, c, r) { walls[o].add(c + ',' + r); left[turn]--; end(); }
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
+function placeWall(o, c, r) { walls[o][c + r * W] = 1; left[turn]--; end(); }
 
-// CPU: 相手の方がゴールに近ければ、差を一番広げる壁を置く。そうでなければ最短の道へ進む
-// ponytail: 1 手読みの欲張り。強くするなら先読み（ミニマックス）を足す
-function cpu() {
-  const me = turn, op = 1 - turn;
-  const gap = () => dist(walls, pawns[op]) - dist(walls, pawns[me]);
-  const now = gap();
-  if (now < 0 && left[me] > 0) {
-    let best = [], bestGain = 0;
-    for (const o of ['h', 'v']) for (let c = 0; c < W - 1; c++) for (let r = 0; r < H - 1; r++) {
-      if (!canWall(o, c, r)) continue;
-      walls[o].add(c + ',' + r);
-      const gain = gap() - now;
-      walls[o].delete(c + ',' + r);
-      if (gain > bestGain) { best = [[o, c, r]]; bestGain = gain; } else if (gain === bestGain && gain > 0) best.push([o, c, r]);
+// ---- CPU: 反復深化のアルファベータ探索（1 歩 = 100 点） ----
+const WIN = 100000, WALL_VALUE = 200, THINK_MS = 1200, MAX_WALL_CANDS = 12;
+
+// me の番のときの形勢。壁が残っていない側は、もう相手を遅らせられないので勝ち負けが決まる
+function evaluate(me) {
+  const op = 1 - me, dm = dist(walls, pawns[me]), dp = dist(walls, pawns[op]);
+  if (left[op] === 0 && dm <= dp) return WIN / 2 - dm;
+  if (left[me] === 0 && dp < dm) return -WIN / 2 + dp;
+  return 100 * (dp - dm) + WALL_VALUE * (left[me] - left[op]);
+}
+
+// 指せる手を、良さそうな順に。壁は相手の道を自分より長く延ばすものだけ
+function actions(me) {
+  const op = 1 - me, dm0 = dist(walls, pawns[me]), dp0 = dist(walls, pawns[op]), acts = [];
+  for (const q of moves(me)) acts.push({ q, s: 100 * (dm0 - dist(walls, q)) });
+  if (left[me] > 0) {
+    // 相手の道を延ばせる壁は、相手の最短の道のどこかを切るものだけ
+    const cands = new Set();
+    dist(walls, pawns[op]);
+    for (let k = goal; parent[k] >= 0; k = parent[k]) {
+      const j = parent[k], c = Math.min(k % W, j % W), r = Math.floor(Math.min(k, j) / W);
+      if (k - j === W || j - k === W) cands.add('h' + c + ',' + r).add('h' + (c - 1) + ',' + r);
+      else cands.add('v' + c + ',' + r).add('v' + c + ',' + (r - 1));
     }
-    if (best.length) return placeWall(...pick(best));
+    const ws = [];
+    for (const key of cands) {
+      const o = key[0], [c, r] = key.slice(1).split(',').map(Number);
+      if (!wallShapeOk(o, c, r)) continue;
+      walls[o][c + r * W] = 1;
+      const dm = dist(walls, pawns[me]), dp = dist(walls, pawns[op]);
+      walls[o][c + r * W] = 0;
+      if (dm === Infinity || dp === Infinity) continue;
+      const gain = (dp - dp0) - (dm - dm0);
+      if (gain > 0) ws.push({ w: [o, c, r], s: 100 * gain - WALL_VALUE });
+    }
+    ws.sort((a, b) => b.s - a.s);
+    acts.push(...ws.slice(0, MAX_WALL_CANDS));
   }
-  const ms = moves(me);
-  if (!ms.length) return end();   // 動けず壁もないときはパス
-  const ds = ms.map((q) => dist(walls, q));
-  const min = Math.min(...ds);
-  const q = pick(ms.filter((_, i) => ds[i] === min));
-  moveTo(q.c, q.r);
+  return acts.sort((a, b) => b.s - a.s);
+}
+
+function play(me, a) {
+  if (a.q) { const old = pawns[me]; pawns[me] = a.q; return () => { pawns[me] = old; }; }
+  const [o, c, r] = a.w;
+  walls[o][c + r * W] = 1; left[me]--;
+  return () => { walls[o][c + r * W] = 0; left[me]++; };
+}
+
+const TIMEOUT = {};
+function search(me, depth, alpha, beta, deadline) {
+  if (pawns[1 - me].r === 0) return -WIN - depth;   // 相手がさっきの手でゴールした（早い負けほど低く）
+  if (depth === 0) return evaluate(me);
+  if (performance.now() > deadline) throw TIMEOUT;
+  const acts = actions(me);
+  if (!acts.length) return -search(1 - me, depth - 1, -beta, -alpha, deadline);   // パス
+  for (const a of acts) {
+    const undo = play(me, a);
+    let v;
+    try { v = -search(1 - me, depth - 1, -beta, -alpha, deadline); } finally { undo(); }
+    if (v > alpha) alpha = v;
+    if (alpha >= beta) break;
+  }
+  return alpha;
+}
+
+// 時間いっぱいまで 1 手ずつ深く読み、読み切れた一番深い結果の最善手を返す
+function think(me, ms = THINK_MS) {
+  const deadline = performance.now() + ms;
+  let acts = actions(me);
+  if (!acts.length) return null;
+  for (let i = acts.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [acts[i], acts[j]] = [acts[j], acts[i]]; }
+  acts.sort((a, b) => b.s - a.s);   // 同じ点の手はばらばらに並ぶ
+  let best = acts[0];
+  for (let depth = 1; depth <= 30; depth++) {
+    try {
+      let alpha = -Infinity, bestHere = null;
+      for (const a of acts) {
+        const undo = play(me, a);
+        let v;
+        try { v = -search(1 - me, depth - 1, -Infinity, -alpha, deadline); } finally { undo(); }
+        if (v > alpha) { alpha = v; bestHere = a; }
+      }
+      best = bestHere;
+      acts = [best, ...acts.filter((a) => a !== best)];
+      if (alpha >= WIN / 2) break;   // 勝ちが見えた
+    } catch (e) {
+      if (e !== TIMEOUT) throw e;
+      break;
+    }
+  }
+  return best;
+}
+
+function cpu() {
+  const a = think(turn);
+  if (!a) return end();   // 動けず壁もないときはパス
+  if (a.q) moveTo(a.q.c, a.q.r); else placeWall(...a.w);
 }
 
 function draw() {
@@ -136,7 +218,7 @@ function draw() {
   const wr = (o, c, r, extra) => o === 'h'
     ? `<rect x="${c * P}" y="${r * P + S}" width="${2 * S + G}" height="${G}" ${extra}/>`
     : `<rect x="${c * P + S}" y="${r * P}" width="${G}" height="${2 * S + G}" ${extra}/>`;
-  for (const o of ['h', 'v']) for (const k of walls[o]) { const [c, r] = k.split(',').map(Number); g.push(wr(o, c, r, 'fill="#ffd35c"')); }
+  for (const o of ['h', 'v']) walls[o].forEach((x, i) => { if (x) g.push(wr(o, i % W, Math.floor(i / W), 'fill="#ffd35c"')); });
   if (preview) g.push(wr(preview.o, preview.c, preview.r, 'fill="#ffd35c" opacity=".5" stroke="#fff"'));
   pawns.forEach((p, i) => g.push(`<circle cx="${p.c * P + S / 2}" cy="${p.r * P + S / 2}" r="${S / 2 - 3}" fill="${COLORS[i]}"/>`));
   const b = document.getElementById('board');
