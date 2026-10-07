@@ -27,18 +27,18 @@ function setAudioSession(soundOn) {
 
 // ---- ここからアプリ本体 ----
 
-const W = 9, H = 13, S = 30, G = 8, P = S + G, WALLS = 10;
+const W = 9, H = 13, S = 30, G = 8, P = S + G;
 const COLORS = ['#ff6b6b', '#5ca8ff'], NAMES = ['赤', '青'];
-// 壁は左上の角のマス (c,r) で表し、c + r * W の位置に 1 を立てる（探索で速く引けるように配列にする）
+// 壁は左上の角のマス (c,r) で表し、c + r * W の位置に置いた人の番号 + 1 を入れる（探索で速く引けるように配列にする）
 const wallSet = () => new Uint8Array(W * H);
-const has = (a, c, r) => c >= 0 && r >= 0 && c < W && r < H && a[c + r * W] === 1;
-let pawns, walls, left, turn, winner, mode, preview, timer;
+const has = (a, c, r) => c >= 0 && r >= 0 && c < W && r < H && a[c + r * W] !== 0;
+let pawns, walls, seenPos, turn, winner, mode, preview, timer;
 let cpus = 0;   // CPU の数。1 なら青が CPU、2 なら両方
 
 function reset() {
   pawns = [{ c: 2, r: H - 1 }, { c: W - 3, r: H - 1 }];
   walls = { h: wallSet(), v: wallSet() };
-  left = [WALLS, WALLS]; turn = 0; winner = -1; mode = 'move'; preview = null;
+  seenPos = new Map(); turn = 0; winner = -1; mode = 'move'; preview = null;
   clearTimeout(timer);
   next();
 }
@@ -89,7 +89,7 @@ function wallShapeOk(o, c, r) {
                    : !(has(a, c, r - 1) || has(a, c, r + 1) || has(a, c, r));
 }
 function canWall(o, c, r) {
-  if (left[turn] <= 0 || !wallShapeOk(o, c, r)) return false;
+  if (!wallShapeOk(o, c, r)) return false;
   walls[o][c + r * W] = 1;
   const ok = pawns.every((p) => dist(walls, p) < Infinity);
   walls[o][c + r * W] = 0;
@@ -101,29 +101,27 @@ function next() {
   draw();
   if (winner < 0 && isCpu(turn)) timer = setTimeout(cpu, 300);
 }
-function end() { turn = 1 - turn; preview = null; next(); }
+const posKey = () => pawns.map((p) => p.c + ',' + p.r).join(' ') + walls.h.join('') + walls.v.join('');
+function end() { seenPos.set(posKey(), (seenPos.get(posKey()) || 0) + 1); turn = 1 - turn; preview = null; next(); }
 function moveTo(c, r) {
   pawns[turn] = { c, r };
   if (r === 0) { winner = turn; preview = null; draw(); } else end();
 }
-function placeWall(o, c, r) { walls[o][c + r * W] = 1; left[turn]--; end(); }
+function placeWall(o, c, r) { walls[o][c + r * W] = turn + 1; end(); }
 
 // ---- CPU: 反復深化のアルファベータ探索（1 歩 = 100 点） ----
-const WIN = 100000, WALL_VALUE = 200, THINK_MS = 1200, MAX_WALL_CANDS = 12;
+const WIN = 100000, THINK_MS = 1200, MAX_WALL_CANDS = 12;
 
-// me の番のときの形勢。壁が残っていない側は、もう相手を遅らせられないので勝ち負けが決まる
+// me の番のときの形勢: ゴールまでの歩数の差
 function evaluate(me) {
-  const op = 1 - me, dm = dist(walls, pawns[me]), dp = dist(walls, pawns[op]);
-  if (left[op] === 0 && dm <= dp) return WIN / 2 - dm;
-  if (left[me] === 0 && dp < dm) return -WIN / 2 + dp;
-  return 100 * (dp - dm) + WALL_VALUE * (left[me] - left[op]);
+  return 100 * (dist(walls, pawns[1 - me]) - dist(walls, pawns[me]));
 }
 
 // 指せる手を、良さそうな順に。壁は相手の道を自分より長く延ばすものだけ
 function actions(me) {
   const op = 1 - me, dm0 = dist(walls, pawns[me]), dp0 = dist(walls, pawns[op]), acts = [];
   for (const q of moves(me)) acts.push({ q, s: 100 * (dm0 - dist(walls, q)) });
-  if (left[me] > 0) {
+  {
     // 相手の道を延ばせる壁は、相手の最短の道のどこかを切るものだけ
     const cands = new Set();
     dist(walls, pawns[op]);
@@ -141,7 +139,7 @@ function actions(me) {
       walls[o][c + r * W] = 0;
       if (dm === Infinity || dp === Infinity) continue;
       const gain = (dp - dp0) - (dm - dm0);
-      if (gain > 0) ws.push({ w: [o, c, r], s: 100 * gain - WALL_VALUE });
+      if (gain > 0) ws.push({ w: [o, c, r], s: 100 * gain });
     }
     ws.sort((a, b) => b.s - a.s);
     acts.push(...ws.slice(0, MAX_WALL_CANDS));
@@ -152,8 +150,8 @@ function actions(me) {
 function play(me, a) {
   if (a.q) { const old = pawns[me]; pawns[me] = a.q; return () => { pawns[me] = old; }; }
   const [o, c, r] = a.w;
-  walls[o][c + r * W] = 1; left[me]--;
-  return () => { walls[o][c + r * W] = 0; left[me]++; };
+  walls[o][c + r * W] = me + 1;
+  return () => { walls[o][c + r * W] = 0; };
 }
 
 const TIMEOUT = {};
@@ -187,7 +185,10 @@ function think(me, ms = THINK_MS) {
       for (const a of acts) {
         const undo = play(me, a);
         let v;
-        try { v = -search(1 - me, depth - 1, -Infinity, -alpha, deadline); } finally { undo(); }
+        try {
+          // 前に出た形へ戻る手は減点（壁が無制限なので、行ったり来たりで終わらなくなるのを防ぐ）
+          v = -search(1 - me, depth - 1, -Infinity, -alpha, deadline) - 150 * (seenPos.get(posKey()) || 0);
+        } finally { undo(); }
         if (v > alpha) { alpha = v; bestHere = a; }
       }
       best = bestHere;
@@ -218,15 +219,15 @@ function draw() {
   const wr = (o, c, r, extra) => o === 'h'
     ? `<rect x="${c * P}" y="${r * P + S}" width="${2 * S + G}" height="${G}" ${extra}/>`
     : `<rect x="${c * P + S}" y="${r * P}" width="${G}" height="${2 * S + G}" ${extra}/>`;
-  for (const o of ['h', 'v']) walls[o].forEach((x, i) => { if (x) g.push(wr(o, i % W, Math.floor(i / W), 'fill="#ffd35c"')); });
-  if (preview) g.push(wr(preview.o, preview.c, preview.r, 'fill="#ffd35c" opacity=".5" stroke="#fff"'));
+  for (const o of ['h', 'v']) walls[o].forEach((x, i) => { if (x) g.push(wr(o, i % W, Math.floor(i / W), `fill="${COLORS[x - 1]}"`)); });
+  if (preview) g.push(wr(preview.o, preview.c, preview.r, `fill="${COLORS[turn]}" opacity=".5" stroke="#fff"`));
   pawns.forEach((p, i) => g.push(`<circle cx="${p.c * P + S / 2}" cy="${p.r * P + S / 2}" r="${S / 2 - 3}" fill="${COLORS[i]}"/>`));
   const b = document.getElementById('board');
   b.setAttribute('viewBox', `0 0 ${bw} ${bh}`);
   b.innerHTML = g.join('');
   document.getElementById('info').innerHTML = winner >= 0
     ? `<b style="color:${COLORS[winner]}">${NAMES[winner]}の勝ち！</b>`
-    : `<b style="color:${COLORS[turn]}">${NAMES[turn]}の番</b> ・ 壁 赤${left[0]} / 青${left[1]}${preview ? ' ・ もう一度タップで確定' : ''}`;
+    : `<b style="color:${COLORS[turn]}">${NAMES[turn]}の番</b>${preview ? ' ・ もう一度タップで確定' : ''}`;
   document.getElementById('again').hidden = winner < 0;
   document.querySelectorAll('[data-mode]').forEach((e) => { e.hidden = winner >= 0; e.setAttribute('aria-pressed', e.dataset.mode === mode); });
 }
