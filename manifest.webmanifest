@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "wall-race — 2人で壁を立てて競うレース",
+  "short_name": "wall-race",
+  "description": "盤を1台で交互に遊ぶ、壁立てレース",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1f2a44",
+  "theme_color": "#1f2a44",
+  "lang": "ja",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
