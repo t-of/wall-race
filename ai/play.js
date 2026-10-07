@@ -1,5 +1,5 @@
 // 1 局を打たせる（自己対局と対戦の共通部分）。Node でもブラウザでも読める。
-import { newState, think, actions, commit, handEval } from './engine.js';
+import { newState, think, actions, commit, handEval, hand2Eval } from './engine.js';
 import { features, FEATURE_DIM } from './features.js';
 import { fromJSON, netEvaluate, NET_SCALE } from './net.js';
 
@@ -15,6 +15,7 @@ export function mulberry32(a) {
 // spec: { kind: 'hand' } か { kind: 'net', net: JSON }。value は探索の点 → −1〜1（学習の目標用）
 export function makeEvaluator(spec) {
   if (spec.kind === 'hand') return { evaluate: handEval, value: (sc) => Math.tanh(sc / 400) };
+  if (spec.kind === 'hand2') return { evaluate: hand2Eval, value: (sc) => Math.tanh(sc / 400) };
   return { evaluate: netEvaluate(fromJSON(spec.net)), value: (sc) => Math.max(-1, Math.min(1, sc / NET_SCALE)) };
 }
 

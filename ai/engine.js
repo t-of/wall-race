@@ -75,6 +75,28 @@ export const posKey = (s) => s.pawns.map((p) => p.c + ',' + p.r).join(' ') + s.h
 // 手書きの評価: me の番のときの、ゴールまでの歩数の差 ×100
 export const handEval = (s, me) => 100 * (dist(s, s.pawns[1 - me]) - dist(s, s.pawns[me]));
 
+// i の最短の道を切る壁を 1 枚置いて、i の道を最大何歩延ばせるか（両者の道は残す壁だけ）
+export function gainOn(s, i) {
+  const p = s.pawns[i], d0 = dist(s, p), path = [];
+  for (let k = goal; parent[k] >= 0; k = parent[k]) path.push(k, parent[k]);
+  let best = 0;
+  for (let t = 0; t < path.length; t += 2) {
+    const k = path[t], j = path[t + 1], c = Math.min(k % W, j % W), r = Math.floor(Math.min(k, j) / W);
+    const cs = k - j === W || j - k === W ? [['h', c, r], ['h', c - 1, r]] : [['v', c, r], ['v', c, r - 1]];
+    for (const [o, x, y] of cs) {
+      if (!wallShapeOk(s, o, x, y)) continue;
+      s[o][x + y * W] = 1;
+      const a = dist(s, p), b = a - d0 > best ? dist(s, s.pawns[1 - i]) : 0;
+      s[o][x + y * W] = 0;
+      if (a < Infinity && b < Infinity && a - d0 > best) best = a - d0;
+    }
+  }
+  return best;
+}
+// 手書き 2: 歩数の差 ＋ 「壁 1 枚で延ばせる歩数」の差（手書き同士の対局の結果からロジスティック回帰で重みを決めた）
+export const GAIN_K = 130;
+export const hand2Eval = (s, me) => handEval(s, me) + GAIN_K * (gainOn(s, 1 - me) - gainOn(s, me));
+
 // 指せる手を、良さそうな順に。壁は相手の道を自分より長く延ばすものだけ
 export function actions(s, me) {
   const op = 1 - me, dm0 = dist(s, s.pawns[me]), dp0 = dist(s, s.pawns[op]), acts = [];

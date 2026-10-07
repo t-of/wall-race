@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runPool, parseArgs } from './worker.mjs';
 import { FEATURE_DIM } from './features.js';
 
-export const toSpec = (f) => (f === 'hand' ? { kind: 'hand' } : { kind: 'net', net: JSON.parse(readFileSync(f, 'utf8')) });
+export const toSpec = (f) => (f === 'hand' || f === 'hand2' ? { kind: f } : { kind: 'net', net: JSON.parse(readFileSync(f, 'utf8')) });
 
 // spec の評価どうしで games 局。戻り値 { X, Q, Z, n, red, blue, draw, plies }
 export async function selfplay(spec, { games, nodes, threads, seed, randPlies = 6, maxPlies = 300 }, onDone) {

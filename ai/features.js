@@ -1,11 +1,11 @@
 // 手番 me から見た入力ベクトル。9×13 のマスごとに 5 枚の面 ＋ 少数のスカラー。
 // 面: 0 手番のコマ / 1 相手のコマ / 2 横壁 / 3 縦壁（左上の角のマスに 1）/ 4 ゴールまでの歩数の地図（/30、上限 30）
 // ゴールは両者とも一番上の段なので、歩数の地図は 1 枚で両者に共通（手番側・相手側の別の地図は同じ値になる）。
-// スカラー: 手番の最短歩数 /30、相手の最短歩数 /30、(相手 − 手番) /10（−3〜3 に収める）
-import { W, H, dist, distMap } from './engine.js';
+// スカラー: 手番の最短歩数 /30、相手の最短歩数 /30、(相手 − 手番) /10（−3〜3 に収める）、壁 1 枚で延ばせる歩数（engine の gainOn）
+import { W, H, dist, distMap, gainOn } from './engine.js';
 
 const N = W * H, PLANES = 5;
-export const FEATURE_DIM = N * PLANES + 3;
+export const FEATURE_DIM = N * PLANES + 6;
 const map = new Uint8Array(N);
 
 export function features(s, me, out = new Float32Array(FEATURE_DIM)) {
@@ -22,6 +22,9 @@ export function features(s, me, out = new Float32Array(FEATURE_DIM)) {
   const dm = Math.min(dist(s, p), 30), dp = Math.min(dist(s, o), 30);
   out[PLANES * N] = dm / 30; out[PLANES * N + 1] = dp / 30;
   out[PLANES * N + 2] = Math.max(-3, Math.min(3, (dp - dm) / 10));
+  // 壁 1 枚で延ばせる歩数（手番側 / 相手側 / 差）
+  const gm = gainOn(s, me), gp = gainOn(s, 1 - me);
+  out[PLANES * N + 3] = gm / 10; out[PLANES * N + 4] = gp / 10; out[PLANES * N + 5] = (gp - gm) / 5;
   return out;
 }
 

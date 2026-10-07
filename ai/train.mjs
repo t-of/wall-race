@@ -12,7 +12,7 @@ import { mulberry32 } from './play.js';
 
 const a = parseArgs({
   name: 'run', games: 200, gens: 20, threads: 8, nodes: 300, 'arena-games': 100, 'arena-nodes': 300,
-  epochs: 4, batch: 128, lr: 0.001, window: 3, beta: 0.3, accept: 0.55, seed: 1, 'rand-plies': 6,
+  epochs: 4, batch: 128, lr: 0.001, window: 3, beta: 0.3, accept: 0.55, seed: 1, base: 'hand2', 'rand-plies': 6,
 });
 const dir = new URL(`./runs/${a.name}/`, import.meta.url).pathname;
 mkdirSync(dir, { recursive: true });
@@ -76,7 +76,7 @@ function fit(net, { X, Y, n }, { epochs, batch, lr, rng }, adam) {
 }
 
 // 再開: log.tsv の最後の世代から。candidate = 最後の gen-N.json、best = best.json（なければ手書き）
-let gen0 = 0, cand = null, best = { kind: 'hand' };
+let gen0 = 0, cand = null, best = { kind: a.base };
 if (existsSync(logFile)) {
   const rows = readFileSync(logFile, 'utf8').trim().split('\n');
   gen0 = rows.length > 1 ? Number(rows[rows.length - 1].split('\t')[0]) : 0;
