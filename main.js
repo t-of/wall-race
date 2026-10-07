@@ -74,10 +74,16 @@ function dist(w, p) {
     for (; head < end; head++) {
       const k = queue[head], c = k % W, r = (k - c) / W;
       if (r === 0) { goal = k; return d; }
-      for (const [a, b] of DIRS) {
-        const n = k + a + b * W;
-        if (seen[n] !== stamp && !blocked(w, c, r, a, b)) { seen[n] = stamp; parent[n] = k; queue[tail++] = n; }
-      }
+      // 上・下・左・右（DIRS と同じ順。blocked を開いて書いた速い版）
+      const h = w.h, v = w.v;
+      let n = k - W;
+      if (r > 0 && seen[n] !== stamp && !h[n] && !(c > 0 && h[n - 1])) { seen[n] = stamp; parent[n] = k; queue[tail++] = n; }
+      n = k + W;
+      if (r < H - 1 && seen[n] !== stamp && !h[k] && !(c > 0 && h[k - 1])) { seen[n] = stamp; parent[n] = k; queue[tail++] = n; }
+      n = k - 1;
+      if (c > 0 && seen[n] !== stamp && !v[n] && !(r > 0 && v[n - W])) { seen[n] = stamp; parent[n] = k; queue[tail++] = n; }
+      n = k + 1;
+      if (c < W - 1 && seen[n] !== stamp && !v[k] && !(r > 0 && v[k - W])) { seen[n] = stamp; parent[n] = k; queue[tail++] = n; }
     }
   }
   return Infinity;
