@@ -6,8 +6,9 @@ import { FEATURE_DIM, features, baseScore } from './features.js';
 export const HIDDEN = [64, 32];
 export const NET_SCALE = 1000;   // 探索の点にするときの倍率（手書きは 1 歩 = 100 点。戻る手の減点は 150）
 
-export function createNet(rng = Math.random, hidden = HIDDEN) {
-  const sizes = [FEATURE_DIM, ...hidden, 1];
+// inputs を FEATURE_DIM より小さくすると、特徴ベクトルの末尾（スカラー）だけを読む網になる
+export function createNet(rng = Math.random, hidden = HIDDEN, inputs = FEATURE_DIM) {
+  const sizes = [inputs, ...hidden, 1];
   const w = [], b = [];
   for (let l = 0; l + 1 < sizes.length; l++) {
     const [n, m] = [sizes[l], sizes[l + 1]];
@@ -21,7 +22,7 @@ export function createNet(rng = Math.random, hidden = HIDDEN) {
 
 // 入力 x → 手番側の値。acts を渡すと各層の値が入る（学習用）
 export function forward(net, x, acts = []) {
-  let h = x;
+  let h = x.subarray(x.length - net.sizes[0]);
   const L = net.sizes.length - 1;
   for (let l = 0; l < L; l++) {
     const n = net.sizes[l], m = net.sizes[l + 1], w = net.w[l];

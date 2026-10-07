@@ -12,7 +12,7 @@ import { mulberry32 } from './play.js';
 
 const a = parseArgs({
   name: 'run', games: 200, gens: 20, threads: 8, nodes: 300, 'arena-games': 100, 'arena-nodes': 300,
-  epochs: 4, batch: 128, lr: 0.001, window: 3, beta: 0.3, accept: 0.55, seed: 1, base: 'hand2', 'rand-plies': 6,
+  epochs: 4, batch: 128, lr: 0.001, window: 3, beta: 0.3, accept: 0.55, seed: 1, base: 'hand2', hidden: '64,32', inputs: 0, 'rand-plies': 6,
 });
 const dir = new URL(`./runs/${a.name}/`, import.meta.url).pathname;
 mkdirSync(dir, { recursive: true });
@@ -24,7 +24,7 @@ function backward(net, x, acts, t, y, g) {
   const L = net.sizes.length - 1;
   let d = Float32Array.of(2 * (t - y) * (1 - t * t));
   for (let l = L - 1; l >= 0; l--) {
-    const n = net.sizes[l], m = net.sizes[l + 1], inp = l ? acts[l - 1] : x, w = net.w[l];
+    const n = net.sizes[l], m = net.sizes[l + 1], inp = l ? acts[l - 1] : x.subarray(x.length - n), w = net.w[l];
     const nd = l ? new Float32Array(n) : null;
     for (let j = 0; j < m; j++) g.b[l][j] += d[j];
     for (let i = 0; i < n; i++) {
@@ -84,7 +84,7 @@ if (existsSync(logFile)) {
   if (existsSync(dir + 'best.json')) best = { kind: 'net', net: rd('best.json') };
   console.log(`再開: 第 ${gen0} 世代まで済み`);
 } else writeFileSync(logFile, HEAD);
-if (!cand) cand = createNet(mulberry32(a.seed));
+if (!cand) cand = createNet(mulberry32(a.seed), String(a.hidden).split(',').map(Number), a.inputs || FEATURE_DIM);   // --inputs 6 でスカラーだけ読む
 
 const rng = mulberry32(a.seed + gen0), adam = { t: 0, m: [...cand.w, ...cand.b].map((p) => new Float32Array(p.length)), v: [...cand.w, ...cand.b].map((p) => new Float32Array(p.length)) };
 const win = [];   // 直近 window 世代のデータ
