@@ -34,6 +34,9 @@ const wallSet = () => new Uint8Array(W * H);
 const has = (a, c, r) => c >= 0 && r >= 0 && c < W && r < H && a[c + r * W] !== 0;
 let pawns, walls, seenPos, turn, winner, mode, preview, timer;
 let cpus = 0;   // CPU の数。1 なら青が CPU、2 なら両方
+// CPU の速さ: [手を指すまでの待ち ms, 考える ms]。はやいと読みが浅くなり少し弱くなる
+const SPEEDS = { fast: [0, 300], normal: [300, 1200], slow: [1500, 1200] };
+let speed = SPEEDS[load('speed', 'normal')] ? load('speed', 'normal') : 'normal';
 
 function reset() {
   pawns = [{ c: 2, r: H - 1 }, { c: W - 3, r: H - 1 }];
@@ -99,7 +102,7 @@ function canWall(o, c, r) {
 const isCpu = (i) => cpus === 2 || (cpus === 1 && i === 1);
 function next() {
   draw();
-  if (winner < 0 && isCpu(turn)) timer = setTimeout(cpu, 300);
+  if (winner < 0 && isCpu(turn)) timer = setTimeout(cpu, SPEEDS[speed][0]);
 }
 const posKey = () => pawns.map((p) => p.c + ',' + p.r).join(' ') + walls.h.join('') + walls.v.join('');
 function end() { seenPos.set(posKey(), (seenPos.get(posKey()) || 0) + 1); turn = 1 - turn; preview = null; next(); }
@@ -110,7 +113,7 @@ function moveTo(c, r) {
 function placeWall(o, c, r) { walls[o][c + r * W] = turn + 1; end(); }
 
 // ---- CPU: 反復深化のアルファベータ探索（1 歩 = 100 点） ----
-const WIN = 100000, THINK_MS = 1200, MAX_WALL_CANDS = 12;
+const WIN = 100000, MAX_WALL_CANDS = 12;
 
 // me の番のときの形勢: ゴールまでの歩数の差
 function evaluate(me) {
@@ -172,7 +175,7 @@ function search(me, depth, alpha, beta, deadline) {
 }
 
 // 時間いっぱいまで 1 手ずつ深く読み、読み切れた一番深い結果の最善手を返す
-function think(me, ms = THINK_MS) {
+function think(me, ms) {
   const deadline = performance.now() + ms;
   let acts = actions(me);
   if (!acts.length) return null;
@@ -203,7 +206,7 @@ function think(me, ms = THINK_MS) {
 }
 
 function cpu() {
-  const a = think(turn);
+  const a = think(turn, SPEEDS[speed][1]);
   if (!a) return end();   // 動けず壁もないときはパス
   if (a.q) moveTo(a.q.c, a.q.r); else placeWall(...a.w);
 }
@@ -257,8 +260,17 @@ document.getElementById('players').addEventListener('click', (e) => {
   const n = e.target.dataset.cpus;
   if (n === undefined) return;
   cpus = Number(n);
+  document.getElementById('speeds').hidden = cpus === 0;   // 速さは CPU がいるときだけ
   document.querySelectorAll('[data-cpus]').forEach((b) => b.setAttribute('aria-pressed', b === e.target));
   reset();
 });
+document.getElementById('speeds').addEventListener('click', (e) => {
+  const v = e.target.dataset.speed;
+  if (v) { speed = v; save('speed', v); showSpeed(); }
+});
+function showSpeed() {
+  document.querySelectorAll('[data-speed]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.speed === speed));
+}
+showSpeed();
 document.getElementById('again').addEventListener('click', reset);
 reset();
