@@ -30,13 +30,15 @@ function setAudioSession(soundOn) {
 const W = 9, H = 13, S = 30, G = 8, P = S + G, WALLS = 10;
 const COLORS = ['#ff6b6b', '#5ca8ff'], NAMES = ['赤', '青'];
 const wallSet = () => new Set();
-let pawns, walls, left, turn, winner, mode, preview;
+let pawns, walls, left, turn, winner, mode, preview, timer;
+let cpus = 0;   // CPU の数。1 なら青が CPU、2 なら両方
 
 function reset() {
   pawns = [{ c: 2, r: H - 1 }, { c: W - 3, r: H - 1 }];
   walls = { h: wallSet(), v: wallSet() };
   left = [WALLS, WALLS]; turn = 0; winner = -1; mode = 'move'; preview = null;
-  draw();
+  clearTimeout(timer);
+  next();
 }
 
 // (c,r) から (dc,dr) へ壁で行けないか（盤の外も不可）
@@ -55,18 +57,22 @@ function moves(i) {
     .filter((q, k) => !blocked(walls, p.c, p.r, DIRS[k][0], DIRS[k][1]) && !(q.c === o.c && q.r === o.r));
 }
 
-// 相手のコマは無視して、一番上の段に着けるか
-function reachable(w, p) {
-  const seen = new Set([p.c + ',' + p.r]), q = [[p.c, p.r]];
-  while (q.length) {
-    const [c, r] = q.pop();
-    if (r === 0) return true;
-    for (const [a, b] of DIRS) {
-      const k = (c + a) + ',' + (r + b);
-      if (!seen.has(k) && !blocked(w, c, r, a, b)) { seen.add(k); q.push([c + a, r + b]); }
+// 相手のコマは無視して、一番上の段までの最短の歩数（着けなければ Infinity）
+function dist(w, p) {
+  const seen = new Set([p.c + ',' + p.r]);
+  let q = [[p.c, p.r]];
+  for (let d = 0; q.length; d++) {
+    const nq = [];
+    for (const [c, r] of q) {
+      if (r === 0) return d;
+      for (const [a, b] of DIRS) {
+        const k = (c + a) + ',' + (r + b);
+        if (!seen.has(k) && !blocked(w, c, r, a, b)) { seen.add(k); nq.push([c + a, r + b]); }
+      }
     }
+    q = nq;
   }
-  return false;
+  return Infinity;
 }
 
 function canWall(o, c, r) {
@@ -76,12 +82,48 @@ function canWall(o, c, r) {
   if (o === 'h' ? (a.has((c - 1) + ',' + r) || a.has((c + 1) + ',' + r) || a.has(c + ',' + r))
                 : (a.has(c + ',' + (r - 1)) || a.has(c + ',' + (r + 1)) || a.has(c + ',' + r))) return false; // 重なり
   a.add(c + ',' + r);
-  const ok = pawns.every((p) => reachable(walls, p));
+  const ok = pawns.every((p) => dist(walls, p) < Infinity);
   a.delete(c + ',' + r);
   return ok;
 }
 
-function end() { turn = 1 - turn; preview = null; draw(); }
+const isCpu = (i) => cpus === 2 || (cpus === 1 && i === 1);
+function next() {
+  draw();
+  if (winner < 0 && isCpu(turn)) timer = setTimeout(cpu, 500);
+}
+function end() { turn = 1 - turn; preview = null; next(); }
+function moveTo(c, r) {
+  pawns[turn] = { c, r };
+  if (r === 0) { winner = turn; preview = null; draw(); } else end();
+}
+function placeWall(o, c, r) { walls[o].add(c + ',' + r); left[turn]--; end(); }
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+
+// CPU: 相手の方がゴールに近ければ、差を一番広げる壁を置く。そうでなければ最短の道へ進む
+// ponytail: 1 手読みの欲張り。強くするなら先読み（ミニマックス）を足す
+function cpu() {
+  const me = turn, op = 1 - turn;
+  const gap = () => dist(walls, pawns[op]) - dist(walls, pawns[me]);
+  const now = gap();
+  if (now < 0 && left[me] > 0) {
+    let best = [], bestGain = 0;
+    for (const o of ['h', 'v']) for (let c = 0; c < W - 1; c++) for (let r = 0; r < H - 1; r++) {
+      if (!canWall(o, c, r)) continue;
+      walls[o].add(c + ',' + r);
+      const gain = gap() - now;
+      walls[o].delete(c + ',' + r);
+      if (gain > bestGain) { best = [[o, c, r]]; bestGain = gain; } else if (gain === bestGain && gain > 0) best.push([o, c, r]);
+    }
+    if (best.length) return placeWall(...pick(best));
+  }
+  const ms = moves(me);
+  if (!ms.length) return end();   // 動けず壁もないときはパス
+  const ds = ms.map((q) => dist(walls, q));
+  const min = Math.min(...ds);
+  const q = pick(ms.filter((_, i) => ds[i] === min));
+  moveTo(q.c, q.r);
+}
 
 function draw() {
   const bw = W * P - G, bh = H * P - G;
@@ -108,19 +150,17 @@ function draw() {
 }
 
 document.getElementById('board').addEventListener('click', (e) => {
-  if (winner >= 0) return;
+  if (winner >= 0 || isCpu(turn)) return;
   const b = e.currentTarget, rc = b.getBoundingClientRect(), vb = b.viewBox.baseVal;
   const x = (e.clientX - rc.left) * vb.width / rc.width, y = (e.clientY - rc.top) * vb.height / rc.height;
   if (mode === 'move') {
     const c = Math.floor(x / P), r = Math.floor(y / P);
     if (!moves(turn).some((q) => q.c === c && q.r === r)) return;
-    pawns[turn] = { c, r };
-    if (r === 0) { winner = turn; preview = null; draw(); } else end();
-    return;
+    return moveTo(c, r);
   }
   const c = Math.round((x + G / 2) / P) - 1, r = Math.round((y + G / 2) / P) - 1;
   if (preview && preview.o === mode && preview.c === c && preview.r === r) {
-    walls[mode].add(c + ',' + r); left[turn]--; end();
+    placeWall(mode, c, r);
   } else {
     preview = canWall(mode, c, r) ? { o: mode, c, r } : null;
     draw();
@@ -129,6 +169,13 @@ document.getElementById('board').addEventListener('click', (e) => {
 document.getElementById('modes').addEventListener('click', (e) => {
   const m = e.target.dataset.mode;
   if (m) { mode = m; preview = null; draw(); }
+});
+document.getElementById('players').addEventListener('click', (e) => {
+  const n = e.target.dataset.cpus;
+  if (n === undefined) return;
+  cpus = Number(n);
+  document.querySelectorAll('[data-cpus]').forEach((b) => b.setAttribute('aria-pressed', b === e.target));
+  reset();
 });
 document.getElementById('again').addEventListener('click', reset);
 reset();

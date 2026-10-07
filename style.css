@@ -58,6 +58,6 @@ button { font: inherit; color: inherit; }
 /* 全画面のオーバーレイは opacity ではなく display: none で隠す */
 
 .info { font-size: 15px; text-align: center; min-height: 22px; }
-.board { width: min(100%, calc((100dvh - 190px) * 9 / 13), 420px); height: auto; touch-action: manipulation; }
+.board { width: min(100%, calc((100dvh - 240px) * 9 / 13), 420px); height: auto; touch-action: manipulation; }
 .modes { display: flex; gap: 8px; }
 .pill[aria-pressed="true"] { background: var(--accent); color: #1f2a44; }
