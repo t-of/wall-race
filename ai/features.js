@@ -2,7 +2,7 @@
 // 面: 0 手番のコマ / 1 相手のコマ / 2 横壁 / 3 縦壁（左上の角のマスに 1）/ 4 ゴールまでの歩数の地図（/30、上限 30）
 // ゴールは両者とも一番上の段なので、歩数の地図は 1 枚で両者に共通（手番側・相手側の別の地図は同じ値になる）。
 // スカラー: 手番の最短歩数 /30、相手の最短歩数 /30、(相手 − 手番) /10（−3〜3 に収める）、壁 1 枚で延ばせる歩数（engine の gainOn）
-import { W, H, dist, distMap, gainOn } from './engine.js';
+import { W, H, dist, distMap, gainOn, GAIN_K } from './engine.js';
 
 const N = W * H, PLANES = 5;
 export const FEATURE_DIM = N * PLANES + 6;
@@ -41,3 +41,7 @@ export function flip(x, out = new Float32Array(FEATURE_DIM)) {
   for (let i = 0; i < FEATURE_DIM; i++) out[i] = x[FLIP[i]];
   return out;
 }
+
+// 特徴ベクトルから手書き 2 の点（hand2Eval と同じ。歩数は 30 で頭打ち）を戻す
+const B = N * PLANES;
+export const baseScore = (x) => 100 * Math.round(30 * (x[B + 1] - x[B])) + GAIN_K * Math.round(5 * x[B + 5]);
